@@ -8,7 +8,7 @@ from collections import deque
 frame_width = 1280
 frame_height = 720
 
-def smooth_path(path, window_size=5):
+def smooth_path(path, window_size=3):
     smoothed = []
     for i in range(len(path)):
         window = path[max(i - window_size + 1, 0):i + 1]
