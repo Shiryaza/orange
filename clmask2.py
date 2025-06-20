@@ -4,6 +4,8 @@ import pandas as pd
 from scipy.stats import norm
 import random
 from collections import deque
+from filterpy.kalman import KalmanFilter
+import copy
 
 frame_width = 1280
 frame_height = 720
@@ -23,6 +25,19 @@ def smooth_path(path, window_size=3):
 
 def livecap(cap,lower,upper):
 #takes in a live video capture to track an orange
+    # --- Kalman Filter Setup ---
+    kf = KalmanFilter(dim_x=4, dim_z=2)  # [x, y, dx, dy]
+    kf.x = np.array([0, 0, 0, 0])        # Initial state
+    kf.F = np.array([[1, 0, 1, 0],       # State transition matrix
+                    [0, 1, 0, 1],
+                    [0, 0, 1, 0],
+                    [0, 0, 0, 1]])
+    kf.H = np.array([[1, 0, 0, 0],       # Measurement function
+                    [0, 1, 0, 0]])
+    kf.P *= 1000.                        # Initial covariance
+    kf.R = np.array([[5, 0], [0, 5]])    # Measurement noise
+    kf.Q = np.eye(4) * 0.01              # Process noise
+
     path = deque(maxlen=32)
 
     while True:
@@ -46,6 +61,7 @@ def livecap(cap,lower,upper):
 
         #find contours
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        measurement=None
         for contour in cnts:
             # Get the area of the contour
             area = cv2.contourArea(contour)
@@ -54,9 +70,32 @@ def livecap(cap,lower,upper):
             if area > 500:
                 # Get the center and radius of the bounding circle for the contour
                 (x, y), radius = cv2.minEnclosingCircle(contour)
-                
+                measurement = np.array([x, y])
                 # Draw the circle around the orange object
                 cv2.circle(frame, (int(x), int(y)), int(radius), (0, 255, 0), 2)  # Green circle
+        
+        if measurement is not None:
+            kf.update(measurement)
+
+        kf.predict()
+
+        predicted = kf.x
+        px, py = int(predicted[0]), int(predicted[1])
+
+        cv2.circle(frame, (px, py), 8, (0, 80, 255), -1)
+
+        # Predict the next 1 second of motion (30 frames ahead)
+        future_kf = copy.deepcopy(kf)
+        future_positions = []
+
+        for _ in range(30):  # Simulate 1 second at 30 FPS
+            future_kf.predict()
+            fx, fy = int(future_kf.x[0]), int(future_kf.x[1])
+            future_positions.append((fx, fy))
+
+        # Draw the future path
+        for point in future_positions:
+            cv2.circle(frame, point, 8, (0, 80, 255), -1)
 
         path.appendleft((int(x),int(y))) #add center to path
 
@@ -144,6 +183,3 @@ def main():
     cap.release()
 
 main()
-
-
-
